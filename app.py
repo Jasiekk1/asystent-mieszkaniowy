@@ -2,13 +2,16 @@
 import streamlit as st
 import pandas as pd
 import re
+from datetime import datetime
 
 @st.cache_data
 def load_data():
     return pd.read_csv("mieszkania.csv")
 
 df = load_data()
+df.columns = df.columns.str.strip().str.lower()
 
+# Ekstrakcja informacji z zapytania użytkownika
 def extract_filters(user_input):
     filters = {}
     loc_match = re.search(r"na\s+(\w+)", user_input.lower())
@@ -28,11 +31,12 @@ def extract_filters(user_input):
 
     return filters
 
+# Filtracja mieszkań
 def filter_offers(filters):
     results = df.copy()
 
     if "lokalizacja" in filters:
-        results = results[results["lokalizacja"].str.lower().str.contains(filters["lokalizacja"])]
+       results = results[results["lokalizacja"].str.lower().str.strip() == filters["lokalizacja"].lower()]
 
     if "pokoje" in filters:
         results = results[results["pokoje"] == filters["pokoje"]]
@@ -45,32 +49,50 @@ def filter_offers(filters):
 
     return results
 
-st.set_page_config(page_title="Asystent Mieszkaniowy AI", layout="centered")
-st.title("🏠 Asystent mieszkaniowy AI")
-st.write("Wpisz, czego szukasz:")
+# Zapis konwersacji do pliku
+def save_chat_log(chat):
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_df = pd.DataFrame(chat, columns=["Kto", "Wiadomość"])
+    log_df.to_csv(f"chat_log_{now}.csv", index=False)
+
+# UI
+st.set_page_config(page_title="Asystent Mieszkaniowy", layout="centered")
+st.title("🏡 Asystent Mieszkaniowy (offline)")
+st.write("Wpisz np. 'szukam 3 pokoi z balkonem na Jeżycach' lub '75 m2 na Malcie z balkonem'")
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+    st.session_state.suggest_next = True
 
-user_input = st.text_input("💬 Twoje zapytanie", "")
+user_input = st.text_input("🧑 Ty:")
 
 if user_input:
     st.session_state.chat_history.append(("Ty", user_input))
-
     filters = extract_filters(user_input)
     results = filter_offers(filters)
 
     if not results.empty:
         response = f"✅ Znalazłem {len(results)} ofert:"
         st.session_state.chat_history.append(("Bot", response))
-
-        for i, row in results.iterrows():
-            offer_text = f"• {row['lokalizacja']}, {row['metraz']}m², {row['pokoje']} pok., balkon: {'tak' if row['balkon'] else 'nie'}, cena: {row['cena']} zł"
-            st.session_state.chat_history.append(("Bot", offer_text))
+        for _, row in results.iterrows():
+            offer = f"{row['lokalizacja']} • {row['metraz']}m² • {row['pokoje']} pokoje • Balkon: {'Tak' if row['balkon'] else 'Nie'} • {row['cena']} zł"
+            st.session_state.chat_history.append(("Bot", offer))
+        st.session_state.suggest_next = False
     else:
-        response = "❌ Niestety nie znalazłem ofert pasujących do Twojego zapytania."
+        response = "❌ Nie znalazłem pasujących mieszkań. Może spróbuj zmienić lokalizację, liczbę pokoi lub metraż."
         st.session_state.chat_history.append(("Bot", response))
+        st.session_state.suggest_next = True
 
-st.markdown("### 🧠 Historia rozmowy")
-for who, msg in st.session_state.chat_history:
-    st.markdown(f"**{who}:** {msg}")
+# Sugestia dalszej rozmowy
+if st.session_state.suggest_next:
+    st.session_state.chat_history.append(("Bot", "💡 Napisz, ile pokoi Cię interesuje lub jaka lokalizacja."))
+
+# Wyświetlenie historii czatu
+st.markdown("### 💬 Historia rozmowy")
+for kto, tekst in st.session_state.chat_history:
+    st.markdown(f"**{kto}:** {tekst}")
+
+# Zapisz konwersację
+if st.button("💾 Zapisz rozmowę do pliku"):
+    save_chat_log(st.session_state.chat_history)
+    st.success("Rozmowa została zapisana!")
