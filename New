@@ -1,0 +1,133 @@
+import streamlit as st
+import pandas as pd
+import re
+from datetime import datetime
+import time
+
+@st.cache_data
+def load_data():
+    return pd.read_csv("mieszkania.csv")
+
+df = load_data()
+df.columns = df.columns.str.strip().str.lower()
+
+def extract_filters(text):
+    filters = {}
+
+    loc_match = re.search(r"(na|w)\\s+([a-ząćęłńóśźż]+)", text.lower())
+    if loc_match:
+        filters["lokalizacja"] = loc_match.group(2)
+
+    pokoje_match = re.search(r"(\\d+)\\s*(pok|pokoje|pokój)", text.lower())
+    if pokoje_match:
+        filters["pokoje"] = int(pokoje_match.group(1))
+
+    balkon_keywords = ["balkon", "balkonie", "balkonu", "z balkonem", "balkony"]
+    if any(k in text.lower() for k in balkon_keywords):
+        filters["balkon"] = True
+
+    metraz_match = re.search(r"(\\d+)\\s*(m2|m²|metrów|metr|m)", text.lower())
+    if metraz_match:
+        filters["metraz"] = int(metraz_match.group(1))
+
+    cena_match = re.search(r"(do|max|maks|cena)\\s*(\\d+)", text.lower())
+    if cena_match:
+        filters["cena_max"] = int(cena_match.group(2))
+
+    return filters
+
+def filter_offers(filters):
+    results = df.copy()
+
+    if "lokalizacja" in filters:
+        results = results[results["lokalizacja"].str.lower().str.strip() == filters["lokalizacja"].lower().strip()]
+
+    if "pokoje" in filters:
+        results = results[results["pokoje"] == filters["pokoje"]]
+
+    if "balkon" in filters:
+        results = results[results["balkon"] == True]
+
+    if "metraz" in filters:
+        results = results[(results["metraz"] >= filters["metraz"] - 5) & (results["metraz"] <= filters["metraz"] + 5)]
+
+    if "cena_max" in filters:
+        results = results[results["cena"] <= filters["cena_max"]]
+
+    return results
+
+def save_chat_log(chat):
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    pd.DataFrame(chat, columns=["Kto", "Wiadomość"]).to_csv(f"chat_log_{now}.csv", index=False)
+
+st.set_page_config(page_title="Asystent Mieszkaniowy AI", layout="centered")
+st.title("🏡 Asystent Mieszkaniowy (offline)")
+
+st.write("Wpisz zapytanie, np. '3 pokoje z balkonem na Wildzie do 750000'")
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+    st.session_state.suggest_next = True
+    st.session_state.is_bot_typing = False
+
+user_input = st.text_input("🧑 Ty:")
+
+if user_input:
+    st.session_state.chat_history.append(("Ty", user_input))
+    st.session_state.is_bot_typing = True
+    filters = extract_filters(user_input)
+
+    with st.spinner("Bot pisze..."):
+        time.sleep(1.5)  # symulacja opóźnienia
+
+    results = filter_offers(filters)
+    st.session_state.is_bot_typing = False
+
+    if not results.empty:
+        response = f"✅ Znalazłem {len(results)} ofert spełniających Twoje kryteria:"
+        st.session_state.chat_history.append(("Bot", response))
+        for _, row in results.iterrows():
+            balkon_text = "z balkonem" if row['balkon'] else "bez balkonu"
+            offer = {
+                "lokalizacja": row['lokalizacja'],
+                "metraz": row['metraz'],
+                "pokoje": row['pokoje'],
+                "balkon": balkon_text,
+                "cena": row['cena']
+            }
+            st.session_state.chat_history.append(("Bot", offer))
+        st.session_state.suggest_next = False
+    else:
+        response = "❌ Nie znalazłem mieszkań spełniających podane kryteria. Spróbuj zmienić lokalizację, liczbę pokoi, metraż lub cenę."
+        st.session_state.chat_history.append(("Bot", response))
+        st.session_state.suggest_next = True
+
+if st.session_state.suggest_next:
+    st.session_state.chat_history.append(("Bot", "💡 Możesz podać lokalizację, liczbę pokoi, metraż lub cenę maksymalną."))
+
+# Funkcja do wyświetlania czatu z dymkami
+def chat_message(who, msg):
+    if who == "Ty":
+        st.markdown(f'<div style="background-color:#DCF8C6;padding:8px;border-radius:10px;margin:5px 30px 5px 150px; text-align:right;">{msg}</div>', unsafe_allow_html=True)
+    else:
+        # Jeśli msg to słownik (oferta), pokaż kartę oferty
+        if isinstance(msg, dict):
+            st.markdown(f'''
+            <div style="background-color:#f1f0f0;padding:10px;border-radius:10px;margin:5px 150px 5px 30px; max-width: 350px;">
+                <b>{msg["lokalizacja"].title()}</b><br>
+                Metraż: {msg["metraz"]} m²<br>
+                Pokoje: {msg["pokoje"]}<br>
+                Balkon: {msg["balkon"]}<br>
+                Cena: {msg["cena"]} zł
+            </div>
+            ''', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div style="background-color:#f1f0f0;padding:8px;border-radius:10px;margin:5px 150px 5px 30px;">{msg}</div>', unsafe_allow_html=True)
+
+st.markdown("### 💬 Historia rozmowy")
+for kto, tekst in st.session_state.chat_history:
+    chat_message(kto, tekst)
+
+if st.button("💾 Zapisz rozmowę do pliku"):
+    save_chat_log(st.session_state.chat_history)
+    st.success("Rozmowa została zapisana!")
