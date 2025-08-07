@@ -11,21 +11,16 @@ df = load_data()
 
 def extract_filters(user_input):
     filters = {}
-
-   
     loc_match = re.search(r"na\s+(\w+)", user_input.lower())
     if loc_match:
         filters["lokalizacja"] = loc_match.group(1)
 
-   
     pokoje_match = re.search(r"(\d+)\s*pok", user_input.lower())
     if pokoje_match:
         filters["pokoje"] = int(pokoje_match.group(1))
 
-  
     if "balkon" in user_input.lower():
         filters["balkon"] = True
-
 
     metraz_match = re.search(r"(\d+)\s*(m|m2|m²)", user_input.lower())
     if metraz_match:
@@ -50,18 +45,14 @@ def filter_offers(filters):
 
     return results
 
-
 st.set_page_config(page_title="Asystent Mieszkaniowy AI", layout="centered")
 st.title("🏠 Asystent mieszkaniowy AI")
 st.write("Wpisz, czego szukasz:")
 
-
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-
 user_input = st.text_input("💬 Twoje zapytanie", "")
-
 
 if user_input:
     st.session_state.chat_history.append(("Ty", user_input))
@@ -79,7 +70,6 @@ if user_input:
     else:
         response = "❌ Niestety nie znalazłem ofert pasujących do Twojego zapytania."
         st.session_state.chat_history.append(("Bot", response))
-
 
 st.markdown("### 🧠 Historia rozmowy")
 for who, msg in st.session_state.chat_history:
